@@ -12,12 +12,36 @@
 	},
 	"compatibility_flags": [
 		"nodejs_compat"
-	]
+	],
+
 	/**
-	 * Smart Placement
-	 * https://developers.cloudflare.com/workers/configuration/smart-placement/#smart-placement
+	 * Workers AI Binding
+	 * https://developers.cloudflare.com/workers-ai/
 	 */
-	// "placement": {  "mode": "smart" }
+	"ai": {
+		"binding": "AI"
+	},
+
+	/**
+	 * Durable Objects — Server-side conversation memory
+	 * Each chat session gets its own DO instance for persistent state
+	 * https://developers.cloudflare.com/durable-objects/
+	 */
+	"durable_objects": {
+		"bindings": [
+			{
+				"name": "CHAT_SESSION",
+				"class_name": "ChatSession"
+			}
+		]
+	},
+
+	"migrations": [
+		{
+			"tag": "v1",
+			"new_classes": ["ChatSession"]
+		}
+	]
 	/**
 	 * Bindings
 	 * Bindings allow your Worker to interact with resources on the Cloudflare Developer Platform, including
