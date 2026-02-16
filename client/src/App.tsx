@@ -1,30 +1,25 @@
 import { useState, useEffect, useTransition, useRef } from 'react';
 import {
-    FiMessageCircle,
-    FiSave,
-    FiX,
-    FiEdit2,
-    FiTrash2,
     FiSend,
     FiInbox,
     FiClock,
-    FiEdit3,
     FiZap,
     FiHash,
     FiDownload,
     FiTrash,
+    FiLoader,
 } from 'react-icons/fi';
-import { loadMessages, saveMessages, exportMessages, clearAll } from './utils';
+import { HiSparkles } from 'react-icons/hi2';
+import { loadMessages, saveMessages, exportMessages, clearAll, sendMessage, clearServerHistory, resetSession } from './utils';
 import type { Message } from './utils';
 import './App.css';
 
 export default function App() {
     const [messages, setMessages] = useState<Message[]>(() => loadMessages())
     const [input, setInput] = useState('')
-    const [editingId, setEditingId] = useState<string | null>(null)
-    const [editingText, setEditingText] = useState('')
     const [, startTransition] = useTransition();
     const [isSaving, setIsSaving] = useState(false);
+    const [isLoading, setIsLoading] = useState(false);
     const messagesEndRef = useRef<HTMLDivElement>(null);
 
     // Auto-scroll to bottom when messages change
@@ -48,61 +43,86 @@ export default function App() {
         }
     }, [messages])
 
-    const handleSendMessage = (e: React.FormEvent) => {
+    const handleSendMessage = async (e: React.FormEvent) => {
         e.preventDefault()
-        if (!input.trim()) return
+        if (!input.trim() || isLoading) return
 
-        const newMessage: Message = {
+        const userMessage: Message = {
             id: Date.now().toString(),
             text: input,
             timestamp: Date.now(),
+            role: 'user',
         }
 
+        const updatedMessages = [...messages, userMessage];
         startTransition(() => {
-            setMessages([...messages, newMessage])
+            setMessages(updatedMessages)
         })
         setInput('')
-    }
+        setIsLoading(true)
 
-    const handleEditMessage = (id: string) => {
-        const message = messages.find(m => m.id === id)
-        if (message) {
-            setEditingId(id)
-            setEditingText(message.text)
+        try {
+            // Server stores the message, calls AI, and returns the response
+            const response = await sendMessage(input);
+
+            if (response.success && response.result) {
+                const aiMessage: Message = {
+                    id: (Date.now() + 1).toString(),
+                    text: response.result.response,
+                    timestamp: Date.now(),
+                    role: 'assistant',
+                }
+                startTransition(() => {
+                    setMessages(prev => [...prev, aiMessage])
+                })
+            } else {
+                const errorMessage: Message = {
+                    id: (Date.now() + 1).toString(),
+                    text: `Error: ${response.error || 'Failed to get AI response'}`,
+                    timestamp: Date.now(),
+                    role: 'assistant',
+                }
+                startTransition(() => {
+                    setMessages(prev => [...prev, errorMessage])
+                })
+            }
+        } catch (error) {
+            const errorMessage: Message = {
+                id: (Date.now() + 1).toString(),
+                text: `Connection error: ${error instanceof Error ? error.message : 'Could not reach the server'}`,
+                timestamp: Date.now(),
+                role: 'assistant',
+            }
+            startTransition(() => {
+                setMessages(prev => [...prev, errorMessage])
+            })
+        } finally {
+            setIsLoading(false)
         }
-    }
-
-    const handleSaveEdit = (id: string) => {
-        if (!editingText.trim()) return setMessages(messages.map(m =>
-            m.id === id ? { ...m, text: editingText } : m
-        ));
-
-        setEditingId(null)
-        setEditingText('')
-    }
-
-    const handleDeleteMessage = (id: string) => {
-        setMessages(messages.filter(m => m.id !== id))
-    }
-
-    const handleCancelEdit = () => {
-        setEditingId(null)
-        setEditingText('')
     }
 
     const handleExportMessages = () => {
         exportMessages(messages);
     }
 
-    const handleClearAll = () => {
+    const handleClearAll = async () => {
         if (window.confirm(`Are you sure you want to delete all ${messages.length} messages? This action cannot be undone.`)) {
+            // Clear server-side conversation history
+            try {
+                await clearServerHistory();
+            } catch {
+                // Continue even if server clear fails
+            }
+            // Reset to a new session
+            resetSession();
+            // Clear local storage
             clearAll();
             setMessages([]);
         }
     }
 
     return (
-        <div className="min-h-screen w-1/2 max-w-[600px] bg-stone-50 flex items-center justify-center p-3 sm:p-6 lg:p-10">
+        <div className="min-h-screen lg:w-1/2 lg:max-w-[600px] sm:w-full bg-stone-50 flex items-center justify-center p-3 sm:p-6 lg:p-10">
             <div className="chat-box w-full max-w-4xl bg-white rounded-3xl shadow-md shadow-stone-200/60 flex flex-col border border-stone-200/80 overflow-hidden">
 
                 {/* Header */}
@@ -162,80 +182,46 @@ export default function App() {
                 ) : (
                     <>
                     {messages.map((message) => (
-                    <div key={message.id} className="group animate-fadeIn">
-                        {editingId === message.id ? (
-                        // Edit Mode
-                        <div className="bg-white rounded-2xl p-5 border border-blue-200 shadow-sm">
-                            <div className="flex items-center gap-2 mb-3">
-                                <FiEdit3 className="text-blue-500 text-sm" aria-hidden="true" />
-                                <span className="text-blue-500 text-xs font-semibold">Editing message</span>
-                            </div>
-                            <textarea
-                                value={editingText}
-                                onChange={(e) => setEditingText(e.target.value)}
-                                className="w-full bg-stone-50 text-stone-700 placeholder-stone-400 rounded-xl px-4 py-3 text-sm leading-relaxed focus:outline-none focus:ring-2 focus:ring-blue-200 focus:border-blue-300 focus:bg-white resize-none border border-stone-200 transition-all duration-150"
-                                rows={3}
-                                autoFocus
-                            />
-                            <div className="flex gap-3 mt-4">
-                                <button
-                                    onClick={() => handleSaveEdit(message.id)}
-                                    className="tooltip-wrap flex-1 bg-blue-500 hover:bg-blue-600 text-white font-semibold py-2.5 px-5 rounded-full transition-all duration-150 flex items-center justify-center gap-2 text-sm shadow-sm"
-                                    aria-label="Save changes"
-                                >
-                                    <FiSave className="text-sm" aria-hidden="true" />
-                                    <span>Save</span>
-                                    <span className="tooltip">Apply changes</span>
-                                </button>
-                                <button
-                                    onClick={handleCancelEdit}
-                                    className="tooltip-wrap flex-1 bg-white hover:bg-stone-50 text-stone-500 font-semibold py-2.5 px-5 rounded-full transition-all duration-150 flex items-center justify-center gap-2 text-sm border border-stone-200 hover:border-stone-300"
-                                    aria-label="Cancel editing"
-                                >
-                                    <FiX className="text-sm text-stone-400" aria-hidden="true" />
-                                    <span>Cancel</span>
-                                    <span className="tooltip">Discard changes</span>
-                                </button>
-                            </div>
-                        </div>
-                        ) : (
-                        // Display Mode
-                        <div className="bg-white rounded-2xl px-5 py-4 border border-stone-200/80 hover:border-stone-300 hover:shadow-sm transition-all duration-150">
-                            <div className="flex justify-between items-start gap-4">
-                                <div className="flex-1 min-w-0">
-                                    <p className="text-stone-700 break-words leading-relaxed text-[15px]">{message.text}</p>
-                                    <div className="flex items-center gap-1.5 mt-3">
-                                        <FiClock className="text-stone-300 text-xs" aria-hidden="true" />
-                                        <span className="text-stone-400 text-xs" title={new Date(message.timestamp).toLocaleString()}>
-                                            {new Date(message.timestamp).toLocaleTimeString()}
-                                        </span>
-                                    </div>
+                    <div key={message.id} className="animate-fadeIn">
+                        <div className={`rounded-2xl px-5 py-4 border transition-all duration-150 ${
+                            message.role === 'assistant'
+                                ? 'bg-blue-50/60 border-blue-100 hover:border-blue-200'
+                                : 'bg-white border-stone-200/80 hover:border-stone-300 hover:shadow-sm'
+                        }`}>
+                            <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2 mb-1.5">
+                                    {message.role === 'assistant' ? (
+                                        <HiSparkles className="text-blue-500 text-xs flex-shrink-0" aria-hidden="true" />
+                                    ) : null}
+                                    <span className={`text-[11px] font-semibold ${
+                                        message.role === 'assistant' ? 'text-blue-500' : 'text-stone-400'
+                                    }`}>
+                                        {message.role === 'assistant' ? 'Llama 3.3' : 'You'}
+                                    </span>
                                 </div>
-                                <div className="opacity-0 group-hover:opacity-100 transition-opacity duration-150 flex gap-2 flex-shrink-0 pt-0.5">
-                                    <button
-                                        onClick={() => handleEditMessage(message.id)}
-                                        className="tooltip-wrap w-8 h-8 flex items-center justify-center rounded-full bg-amber-50 hover:bg-amber-100 text-amber-500 hover:text-amber-600 border border-amber-200 transition-all duration-150"
-                                        aria-label="Edit message"
-                                    >
-                                        <FiEdit2 className="text-sm" aria-hidden="true" />
-                                        <span className="tooltip">Edit</span>
-                                    </button>
-                                    <button
-                                        onClick={() => handleDeleteMessage(message.id)}
-                                        className="tooltip-wrap w-8 h-8 flex items-center justify-center rounded-full bg-red-50 hover:bg-red-100 text-red-400 hover:text-red-500 border border-red-200 transition-all duration-150"
-                                        aria-label="Delete message"
-                                    >
-                                        <FiTrash2 className="text-sm" aria-hidden="true" />
-                                        <span className="tooltip">Delete</span>
-                                    </button>
+                                <p className="text-stone-700 break-words leading-relaxed text-[15px] whitespace-pre-wrap">{message.text}</p>
+                                <div className="flex items-center gap-1.5 mt-3">
+                                    <FiClock className="text-stone-300 text-xs" aria-hidden="true" />
+                                    <span className="text-stone-400 text-xs" title={new Date(message.timestamp).toLocaleString()}>
+                                        {new Date(message.timestamp).toLocaleTimeString()}
+                                    </span>
                                 </div>
                             </div>
                         </div>
-                        )}
                     </div>
                     ))}
                     <div ref={messagesEndRef} />
                     </>
+                )}
+                {isLoading && (
+                    <div className="animate-fadeIn flex items-center gap-3 px-5 py-4">
+                        <div className="flex items-center gap-1.5">
+                            <span className="w-2 h-2 bg-blue-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+                            <span className="w-2 h-2 bg-blue-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+                            <span className="w-2 h-2 bg-blue-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+                        </div>
+                        <span className="text-blue-400 text-xs font-medium">Llama 3.3 is thinking...</span>
+                    </div>
                 )}
                 </div>
 
@@ -246,18 +232,23 @@ export default function App() {
                             type="text"
                             value={input}
                             onChange={(e) => setInput(e.target.value)}
-                            placeholder="Write something..."
+                            placeholder={isLoading ? "Waiting for AI..." : "Write something..."}
                             aria-label="Type your message"
-                            className="w-full bg-stone-50 text-stone-700 placeholder-stone-400 rounded-full pl-11 pr-5 py-3.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200 focus:border-blue-300 focus:bg-white transition-all duration-150 border border-stone-200 hover:border-stone-300"
+                            disabled={isLoading}
+                            className="w-full bg-stone-50 text-stone-700 placeholder-stone-400 rounded-full pl-11 pr-5 py-3.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200 focus:border-blue-300 focus:bg-white transition-all duration-150 border border-stone-200 hover:border-stone-300 disabled:opacity-50 disabled:cursor-not-allowed"
                         />
                         <button
                             type="submit"
-                            disabled={!input.trim()}
+                            disabled={!input.trim() || isLoading}
                             className="tooltip-wrap w-12 h-12 flex items-center justify-center rounded-full bg-blue-500 hover:bg-blue-600 disabled:bg-stone-200 disabled:cursor-not-allowed text-white disabled:text-stone-400 transition-all duration-150 flex-shrink-0 shadow-sm hover:shadow-md disabled:shadow-none"
                             aria-label="Send message"
                         >
-                            <FiSend className="text-lg" aria-hidden="true" />
-                            <span className="tooltip">{input.trim() ? 'Send message' : 'Type a message first'}</span>
+                            {isLoading ? (
+                                <FiLoader className="text-lg animate-spin" aria-hidden="true" />
+                            ) : (
+                                <FiSend className="text-lg" aria-hidden="true" />
+                            )}
+                            <span className="tooltip">{isLoading ? 'AI is thinking...' : input.trim() ? 'Send message' : 'Type a message first'}</span>
                         </button>
                     </form>
                 </div>

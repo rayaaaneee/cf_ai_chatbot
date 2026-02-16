@@ -20,3 +20,12 @@ export {
     BACKUP_KEY,
     VERSION,
 } from './storage';
+
+// Export API service
+export {
+    sendMessage,
+    fetchHistory,
+    clearServerHistory,
+    getSessionId,
+    resetSession,
+} from './api';

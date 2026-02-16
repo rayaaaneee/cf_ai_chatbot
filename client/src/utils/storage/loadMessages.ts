@@ -20,7 +20,11 @@ export function loadMessages(): Message[] {
             return loadBackup();
         }
 
-        return data.messages;
+        // Normalize legacy messages that predate the role field
+        return data.messages.map((message) => ({
+            ...message,
+            role: message.role ?? "user",
+        }));
     } catch (error) {
         console.error('Failed to load messages from localStorage:', error);
         return loadBackup();
